@@ -1,0 +1,316 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Trang Nhận - Cấp Mã & Duyệt Đơn Realtime</title>
+    <style>
+        body { font-family: 'Segoe UI', Arial, sans-serif; background-color: #1e1e24; color: #fff; padding: 20px; margin: 0; }
+        .container { max-width: 950px; margin: 0 auto; }
+        h2, h3 { color: #3498db; margin-top: 0; }
+        h2 { text-align: center; border-bottom: 2px solid #3498db; padding-bottom: 10px; }
+        
+        /* Hộp xử lý yêu cầu xin mã */
+        .request-manager { background: #2a2a35; padding: 20px; border-radius: 8px; margin-bottom: 25px; border: 1px solid #444; }
+        .req-list { display: grid; grid-template-columns: repeat(auto-fill, minmax(140px, 1fr)); gap: 10px; margin-top: 10px; }
+        .req-item { background: #1e1e24; padding: 12px; border-radius: 6px; border: 1px solid #e67e22; text-align: center; cursor: pointer; transition: 0.2s; }
+        .req-item:hover { background: #2c2c38; transform: translateY(-2px); }
+
+        /* Bố cục chia 2 phần (2 Cột nhận đơn) */
+        .split-sections { display: grid; grid-template-columns: 1fr 1fr; gap: 20px; margin-top: 20px; }
+        .section-column { background: #23232e; padding: 15px; border-radius: 8px; border: 1px solid #3e3e4f; min-height: 300px; }
+        .section-column h3 { border-bottom: 2px solid #555; padding-bottom: 8px; margin-bottom: 15px; text-align: center; }
+        
+        .ticket-list { display: grid; grid-template-columns: repeat(auto-fill, minmax(120px, 1fr)); gap: 10px; }
+        .ticket-item { background: #2a2a35; padding: 12px; border-radius: 6px; text-align: center; cursor: pointer; border: 1px solid #444; transition: all 0.2s; }
+        .ticket-item:hover { background: #3a3a4a; transform: translateY(-2px); }
+        .status-badge { font-size: 10px; padding: 2px 4px; border-radius: 4px; display: inline-block; margin-top: 5px; }
+        .bg-pending { background: #e67e22; }
+        .bg-approved { background: #2ecc71; }
+        .bg-rejected { background: #e74c3c; }
+
+        /* Hộp thoại xem chi tiết (Modal chung) */
+        .modal { position: fixed; top: 50%; left: 50%; transform: translate(-50%, -50%); background: #2d3436; padding: 25px; border-radius: 12px; width: 90%; max-width: 450px; z-index: 10; display: none; border: 1px solid #555; text-align: center; }
+        .modal-info { background: #1e1e24; padding: 15px; border-radius: 6px; margin: 15px 0; text-align: left; line-height: 1.6;}
+        .btn-group { display: flex; gap: 10px; }
+        .btn { flex: 1; padding: 12px; border: none; border-radius: 6px; font-weight: bold; cursor: pointer; color: white; }
+        .btn-approve { background: #2ecc71; }
+        .btn-reject { background: #e74c3c; }
+        .btn-close { background: #7f8c8d; margin-top: 10px; width: 100%; }
+        .overlay { position: fixed; top:0; left:0; width:100%; height:100%; background:rgba(0,0,0,0.6); display:none; z-index:5; }
+        .no-data { text-align: center; color: #666; font-style: italic; font-size: 13px; width: 100%; padding: 20px 0; }
+        .clear-btn { display: block; margin: 30px auto 0; padding: 8px 16px; background:#c0392b; color:white; border:none; border-radius:4px; cursor:pointer;}
+        .hidden { display: none !important; }
+    </style>
+</head>
+<body>
+
+    <div class="container">
+        <h2>HỆ THỐNG QUẢN LÝ ADMIN</h2>
+        
+        <!-- HỘP XỬ LÝ NHẬN CÁC YÊU CẦU XIN MÃ BẢO DANH -->
+        <div class="request-manager">
+            <h3 style="color: #e67e22;">📥 Các yêu cầu xin mã bảo danh mới</h3>
+            <div id="requestArea" class="req-list">
+                <!-- Danh sách tên người xin mã hiển thị ở đây -->
+            </div>
+        </div>
+
+        <!-- HỘP CHIA 2 PHẦN NHẬN ĐƠN HÀNG -->
+        <div class="split-sections">
+            <div class="section-column">
+                <h3 style="color: #3498db;">📬 Hộp thư: Lần gửi 1</h3>
+                <div id="ticketArea1" class="ticket-list"></div>
+            </div>
+            <div class="section-column">
+                <h3 style="color: #9b59b6;">📬 Hộp thư: Lần gửi 2</h3>
+                <div id="ticketArea2" class="ticket-list"></div>
+            </div>
+        </div>
+        
+        <button class="clear-btn" onclick="clearSystem()">Reset toàn bộ dữ liệu hệ thống</button>
+    </div>
+
+    <!-- HỘP THOẠI 1: XỬ LÝ YÊU CẦU XIN MÃ (MỚI THÊM) -->
+    <div id="tokenRequestModal" class="modal">
+        <h3 style="color: #e67e22;">Duyệt Cấp Mã Bảo Danh</h3>
+        <p style="margin: 5px 0;">Người yêu cầu: <strong id="reqModalName" style="color: #f1c40f;"></strong></p>
+        <div class="modal-info" style="background: transparent; padding: 5px 0;">
+            <label style="display:block; margin-bottom: 5px; font-weight:bold;">Tự đặt mã bảo mật nếu muốn (Để trống sẽ tự sinh ngẫu nhiên):</label>
+            <input type="text" id="customTokenInput" style="width:100%; padding: 10px; border-radius:6px; border: 1px solid #555; background:#1e1e24; color:#fff;" placeholder="Ví dụ: vip777...">
+        </div>
+        <div class="btn-group">
+            <button class="btn btn-approve" onclick="handleTokenRequest('grant')">ĐỒNG Ý CẤP MÃ</button>
+            <button class="btn btn-reject" onclick="handleTokenRequest('deny')">KHÔNG ĐỒNG Ý</button>
+        </div>
+        <button class="btn btn-close" onclick="closeModal()">Đóng cửa sổ</button>
+    </div>
+
+    <!-- HỘP THOẠI 2: XEM CHI TIẾT & PHÊ DUYỆT ĐƠN HÀNG -->
+    <div id="overlay" class="overlay" onclick="closeModal()"></div>
+    <div id="detailModal" class="modal">
+        <h3>Xem Đơn Phê Duyệt</h3>
+        <div class="modal-info">
+            <p><strong>Người gửi (Tên thật):</strong> <span id="mdName" style="color:#f1c40f; font-weight:bold;"></span></p>
+            <p><strong>Nộp vào nhóm:</strong> <span id="mdTurn" style="color:#3498db; font-weight:bold;"></span></p>
+            <p><strong>Tuổi:</strong> <span id="mdAge"></span></p>
+            <p><strong>Lời nhắn:</strong> <span id="mdMsg"></span></p>
+            <p><strong>Thời gian:</strong> <span id="mdTime"></span></p>
+            <p id="mdReasonRow" class="hidden" style="color: #e74c3c;"><strong>Phản hồi từ chối cũ:</strong> <span id="mdReason"></span></p>
+        </div>
+        <div id="actionButtons" class="btn-group">
+            <button class="btn btn-approve" onclick="handleAction('approved')">ĐỒNG Ý</button>
+            <button class="btn btn-reject" onclick="handleAction('rejected')">TỪ CHỐI</button>
+        </div>
+        <button class="btn btn-close" onclick="closeModal()">Đóng cửa sổ</button>
+    </div>
+    <script>
+        let selectedTicketId = null;
+        let selectedRequestId = null;
+        let selectedRequestName = "";
+
+        // Sinh chuỗi mã ngẫu nhiên bảo mật
+        function makeRandomToken(length) {
+            let result = '';
+            const characters = 'abcdefghijklmnopqrstuvwxyz0123456789@^!$';
+            for (let i = 0; i < length; i++) result += characters.charAt(Math.floor(Math.random() * characters.length));
+            return result;
+        }
+
+        // Tải danh sách yêu cầu xin cấp mã từ người gửi
+        function loadRequests() {
+            const requestArea = document.getElementById('requestArea');
+            const reqList = JSON.parse(localStorage.getItem('tokenRequests')) || [];
+            const activeReqs = reqList.filter(r => r.status === 'waiting');
+
+            if (activeReqs.length === 0) {
+                requestArea.innerHTML = '<div class="no-data" style="color:#aaa;">Không có yêu cầu xin mã nào...</div>';
+                return;
+            }
+
+            let html = '';
+            activeReqs.forEach(req => {
+                html += `
+                    <div class="req-item" onclick="openRequestModal('${req.id}', '${req.name}')">
+                        <strong style="color:#e67e22;">${req.name}</strong>
+                        <div style="font-size:11px; margin-top:4px; color:#aaa;">Bấm để xem và duyệt</div>
+                    </div>
+                `;
+            });
+            requestArea.innerHTML = html;
+        }
+
+        // Mở hộp thoại duyệt xin mã
+        function openRequestModal(id, name) {
+            selectedRequestId = id;
+            selectedRequestName = name;
+            document.getElementById('reqModalName').innerText = name;
+            document.getElementById('customTokenInput').value = "";
+            document.getElementById('tokenRequestModal').style.display = 'block';
+            document.getElementById('overlay').style.display = 'block';
+        }
+
+        // Xử lý quyết định cấp mã hoặc từ chối cấp mã của Admin
+        function handleTokenRequest(action) {
+            if (!selectedRequestId) return;
+            let reqList = JSON.parse(localStorage.getItem('tokenRequests')) || [];
+
+            if (action === 'grant') {
+                // Admin đồng ý cấp mã
+                let customToken = document.getElementById('customTokenInput').value.trim();
+                if (customToken === "") {
+                    customToken = makeRandomToken(8);
+                }
+
+                reqList = reqList.map(r => {
+                    if (r.id === selectedRequestId) {
+                        r.status = 'granted';
+                        r.token = customToken;
+                    }
+                    return r;
+                });
+
+                // Lưu mã token vào danh sách mã hợp lệ được duyệt
+                let validTokens = JSON.parse(localStorage.getItem('generatedTokens')) || {};
+                validTokens[customToken] = selectedRequestName;
+                localStorage.setItem('generatedTokens', JSON.stringify(validTokens));
+
+                alert(`Đã duyệt và cấp mã [ ${customToken} ] cho ${selectedRequestName}!`);
+            } else if (action === 'deny') {
+                // Admin từ chối cấp mã
+                reqList = reqList.map(r => {
+                    if (r.id === selectedRequestId) {
+                        r.status = 'denied';
+                    }
+                    return r;
+                });
+                alert(`Đã từ chối cấp mã bảo danh cho ${selectedRequestName}!`);
+            }
+
+            localStorage.setItem('tokenRequests', JSON.stringify(reqList));
+            closeModal();
+            loadRequests();
+        }
+
+        // Tải danh sách đơn đã gửi và phân bổ vào 2 cột giao diện
+        function loadTickets() {
+            const area1 = document.getElementById('ticketArea1');
+            const area2 = document.getElementById('ticketArea2');
+            const ticketList = JSON.parse(localStorage.getItem('approvalTickets')) || [];
+
+            let html1 = '', html2 = '';
+            let count1 = 0, count2 = 0;
+
+            ticketList.forEach((ticket) => {
+                let statusText = 'Đang chờ';
+                let statusClass = 'bg-pending';
+                if(ticket.status === 'approved') { statusText = 'Đồng ý'; statusClass = 'bg-approved'; }
+                if(ticket.status === 'rejected') { statusText = 'Từ chối'; statusClass = 'bg-rejected'; }
+
+                const itemHtml = `
+                    <div class="ticket-item" onclick="viewTicket('${ticket.id}')">
+                        <strong style="color:#fff; font-size:13px;">${ticket.name}</strong>
+                        <span class="status-badge ${statusClass}">${statusText}</span>
+                    </div>
+                `;
+
+                if (ticket.turn === "1") {
+                    html1 += itemHtml;
+                    count1++;
+                } else if (ticket.turn === "2") {
+                    html2 += itemHtml;
+                    count2++;
+                }
+            });
+
+            area1.innerHTML = count1 === 0 ? '<div class="no-data">Hộp thư trống...</div>' : html1;
+            area2.innerHTML = count2 === 0 ? '<div class="no-data">Hộp thư trống...</div>' : html2;
+        }
+
+        // Xem chi tiết đơn ứng tuyển
+        function viewTicket(id) {
+            selectedTicketId = id;
+            const ticketList = JSON.parse(localStorage.getItem('approvalTickets')) || [];
+            const ticket = ticketList.find(t => t.id === id);
+
+            if (ticket) {
+                document.getElementById('mdName').innerText = ticket.name;
+                document.getElementById('mdTurn').innerText = "Lần gửi " + ticket.turn;
+                document.getElementById('mdAge').innerText = ticket.age;
+                document.getElementById('mdMsg').innerText = ticket.message;
+                document.getElementById('mdTime').innerText = ticket.time;
+
+                if (ticket.status !== 'pending') {
+                    document.getElementById('actionButtons').style.display = 'none';
+                    if (ticket.status === 'rejected' && ticket.adminReason) {
+                        document.getElementById('mdReason').innerText = ticket.adminReason;
+                        document.getElementById('mdReasonRow').classList.remove('hidden');
+                    } else {
+                        document.getElementById('mdReasonRow').classList.add('hidden');
+                    }
+                } else {
+                    document.getElementById('actionButtons').style.display = 'flex';
+                    document.getElementById('mdReasonRow').classList.add('hidden');
+                }
+
+                document.getElementById('detailModal').style.display = 'block';
+                document.getElementById('overlay').style.display = 'block';
+            }
+        }
+
+        // Xử lý nút Đồng ý hoặc Từ chối đơn
+        function handleAction(status) {
+            if (!selectedTicketId) return;
+            let ticketList = JSON.parse(localStorage.getItem('approvalTickets')) || [];
+            let reason = "";
+
+            if (status === 'rejected') {
+                reason = prompt("Nhập lời nhắn phản hồi gửi kèm lý do từ chối đơn này:", "Thông tin chưa chính xác!");
+                if (reason === null) return;
+            }
+            
+            ticketList = ticketList.map(t => {
+                if (t.id === selectedTicketId) {
+                    t.status = status;
+                    if(status === 'rejected') t.adminReason = reason;
+                }
+                return t;
+            });
+
+            localStorage.setItem('approvalTickets', JSON.stringify(ticketList));
+            closeModal();
+            loadTickets();
+        }
+
+        // Đóng tất cả các loại Modal Popup
+        function closeModal() {
+            document.getElementById('tokenRequestModal').style.display = 'none';
+            document.getElementById('detailModal').style.display = 'none';
+            document.getElementById('overlay').style.display = 'none';
+            selectedTicketId = null;
+            selectedRequestId = null;
+            selectedRequestName = "";
+        }
+
+        function clearSystem() {
+            if(confirm("Bạn có chắc muốn xóa sạch toàn bộ dữ liệu đơn, mã bảo mật và yêu cầu không?")) {
+                localStorage.removeItem('approvalTickets');
+                localStorage.removeItem('generatedTokens');
+                localStorage.removeItem('tokenRequests');
+                loadTickets();
+                loadRequests();
+            }
+        }
+
+        // Lắng nghe dữ liệu thay đổi real-time
+        window.addEventListener('storage', () => {
+            loadTickets();
+            loadRequests();
+        });
+
+        // Khởi chạy dữ liệu ban đầu
+        loadTickets();
+        loadRequests();
+    </script>
+</body>
+</html>
